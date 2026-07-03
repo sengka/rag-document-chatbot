@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="tr">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Kendi Dokümanların ile Sohbet Et</title>
+    <link rel="stylesheet" href="/static/style.css" />
+  </head>
+  <body>
+    <div class="container">
+      <h1>Dokümanların ile Sohbet Et</h1>
+
+      <div class="upload-section">
+        <input type="file" id="fileInput" accept=".txt,.pdf,.doc,.docx" />
+        <button id="uploadBtn">Yükle</button>
+        <span id="uploadStatus"></span>
+      </div>
+      <div class="files-section" id="filesSection">
+        <!-- Dosya checkbox'ları buraya JS ile eklenecek -->
+      </div>
+      <div class="chat-box" id="chatBox">
+        <!-- Mesajlar buraya JS ile eklenecek -->
+      </div>
+
+      <div class="input-section">
+        <input type="text" id="questionInput" placeholder="Bir soru sor..." />
+        <button id="sendBtn">Gönder</button>
+      </div>
+    </div>
+
+    <script src="/static/script.js"></script>
+  </body>
+</html>
