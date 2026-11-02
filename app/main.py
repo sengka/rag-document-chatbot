@@ -1,69 +1,172 @@
-from fastapi import FastAPI
-from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+"""Mindshire Arı yan servisi.
+
+Yalnız 127.0.0.1'de çalışır; bütün uçlar (/saglik hariç) Express'in imzaladığı userId ister.
+ARI_GIZLI yoksa servis başlamaz. Eski bağımsız arayüz (/, /static, /docs) bu modda kapalıdır.
+"""
+import logging
 import os
-import shutil
-from fastapi import UploadFile, File, HTTPException
+import uuid
+from typing import Optional
+from urllib.parse import unquote
 
-from app.config import UPLOAD_DIR
-from app.document_processor import is_supported, process_file
-from app.embeddings import embed_texts
-from app.vector_store import get_vector_store
+from fastapi import BackgroundTasks, Depends, FastAPI, Request
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
-from app.rag import ask
-from fastapi.staticfiles import StaticFiles
-from typing import Optional, List
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
-app = FastAPI(title="Kendi Dokümanların ile Sohbet Et")
+from app import kovan
+from app.config import ARI_GIZLI, MAKS_DOSYA_BAYT, MAKS_SORU
+from app.document_processor import is_supported
+from app.guvenlik import Hata, imzali_kullanici
+from app.rag import BULUNAMADI, ask
 
-app.mount("/static", StaticFiles(directory="app/static"), name="static")
+if len(ARI_GIZLI) < 32:
+    raise RuntimeError("ARI_GIZLI ayarlı değil (en az 32 karakter); Arı servisi başlatılmadı.")
 
-class ChatRequest(BaseModel):
-    question: str
-    sources: Optional[List[str]] = None
-@app.get("/")
-def read_root():
-    return FileResponse("app/static/index.html")
-@app.post("/upload")
-async def upload_file(file: UploadFile = File(...)):
-    if not is_supported(file.filename):
-        raise HTTPException(status_code=400, detail="Desteklenmeyen dosya formatı.")
+log = logging.getLogger("ari")
 
-    file_path = os.path.join(UPLOAD_DIR, file.filename)
+app = FastAPI(title="Mindshire Arı", docs_url=None, redoc_url=None, openapi_url=None)
 
-    with open(file_path, "wb") as f:
-        shutil.copyfileobj(file.file, f)
+ALINTI = 400  # kaynak alıntısı en fazla bu kadar karakter
 
-    chunks = process_file(file_path)
 
-    if not chunks:
-        raise HTTPException(status_code=400, detail="Dosyadan metin çıkarılamadı.")
+@app.exception_handler(StarletteHTTPException)
+async def _http_hatasi(request: Request, exc: StarletteHTTPException):
+    kod = exc.detail if isinstance(exc.detail, str) and exc.detail.isidentifier() else "istek"
+    return JSONResponse({"kod": kod}, status_code=exc.status_code)
 
-    texts = [c.text for c in chunks]
-    embeddings = embed_texts(texts)
 
-    store = get_vector_store()
-    store.add_chunks(chunks, embeddings)
+@app.exception_handler(RequestValidationError)
+async def _gecersiz(request: Request, exc: RequestValidationError):
+    return JSONResponse({"kod": "istek"}, status_code=400)
 
-    return {
-        "filename": file.filename,
-        "chunk_count": len(chunks),
-        "message": "Doküman başarıyla işlendi ve indekslendi.",
-    }
 
-@app.post("/chat")
-def chat(request: ChatRequest):
-    if not request.question.strip():
-        raise HTTPException(status_code=400, detail="Soru boş olamaz.")
+@app.exception_handler(Exception)
+async def _beklenmeyen(request: Request, exc: Exception):
+    log.error("beklenmeyen hata: %s", type(exc).__name__)
+    return JSONResponse({"kod": "ic"}, status_code=500)
 
-    result = ask(request.question, sources=request.sources)
 
-    return {
-        "answer": result["answer"],
-        "sources": result["sources"],
-    }
+@app.get("/saglik")
+def saglik():
+    return {"durum": "iyi"}
+
 
 @app.get("/files")
-def list_files():
-    store = get_vector_store()
-    return {"files": store.list_sources()}
+def list_files(ders: Optional[str] = None, kullanici: str = Depends(imzali_kullanici)):
+    if ders is not None:
+        kovan.ders_gecerli(ders)
+    return {"dosyalar": [kovan.gorunum(k) for k in kovan.listele(kullanici, ders)]}
+
+
+@app.get("/files/{dosya_id}")
+def file_status(dosya_id: str, kullanici: str = Depends(imzali_kullanici)):
+    kayit = kovan.bul(kullanici, dosya_id)
+    if not kayit:
+        raise Hata(404, "bulunamadi")
+    return {"dosya": kovan.gorunum(kayit)}
+
+
+@app.delete("/files/{dosya_id}")
+def delete_file(dosya_id: str, kullanici: str = Depends(imzali_kullanici)):
+    if not kovan.sil(kullanici, dosya_id):
+        raise Hata(404, "bulunamadi")
+    return {"silindi": True}
+
+
+@app.delete("/dersler/{ders}")
+def delete_course(ders: str, kullanici: str = Depends(imzali_kullanici)):
+    kovan.ders_gecerli(ders)
+    return {"silinen": kovan.ders_sil(kullanici, ders)}
+
+
+@app.delete("/kullanici")
+def delete_user(kullanici: str = Depends(imzali_kullanici)):
+    kovan.kullanici_sil(kullanici)
+    return {"silindi": True}
+
+
+@app.post("/upload", status_code=202)
+async def upload_file(
+    request: Request,
+    background: BackgroundTasks,
+    ders: str = "",
+    kullanici: str = Depends(imzali_kullanici),
+):
+    kovan.ders_gecerli(ders)
+    ad = os.path.basename(unquote(request.headers.get("x-dosya-adi", "")))
+    if not ad or not is_supported(ad):
+        raise Hata(400, "tur")
+    uzunluk = request.headers.get("content-length", "")
+    if uzunluk.isdigit() and int(uzunluk) > MAKS_DOSYA_BAYT:
+        raise Hata(413, "boyut")
+
+    dizin = kovan.dosya_dizini(kullanici)
+    os.makedirs(dizin, exist_ok=True)
+    dosya_id = uuid.uuid4().hex
+    uzanti = os.path.splitext(ad)[1].lower()
+    saklanan = dosya_id + uzanti  # diskte kullanıcının verdiği ad hiç kullanılmaz
+    gecici = os.path.join(dizin, saklanan + ".yukleniyor")
+    toplam = 0
+    try:
+        with open(gecici, "wb") as f:
+            async for parca in request.stream():
+                toplam += len(parca)
+                if toplam > MAKS_DOSYA_BAYT:
+                    raise Hata(413, "boyut")
+                f.write(parca)
+        if toplam == 0:
+            raise Hata(400, "bos")
+        os.replace(gecici, os.path.join(dizin, saklanan))
+    finally:
+        if os.path.exists(gecici):
+            os.remove(gecici)
+
+    kayit = kovan.yeni_kayit(dosya_id, ad, ders, saklanan, toplam, None)
+    kovan.ekle(kullanici, kayit)
+    kovan.kuyruga_al(dosya_id)
+    background.add_task(kovan.isle, kullanici, dosya_id)
+    return {"dosya": kovan.gorunum(kayit)}
+
+
+class SoruIstegi(BaseModel):
+    soru: str
+    ders: str
+
+
+@app.post("/chat")
+def chat(istek: SoruIstegi, kullanici: str = Depends(imzali_kullanici)):
+    soru = istek.soru.strip()
+    if not soru or len(soru) > MAKS_SORU:
+        raise Hata(400, "soru")
+    kovan.ders_gecerli(istek.ders)
+
+    hazir = [k for k in kovan.listele(kullanici, istek.ders) if k["durum"] == "hazir"]
+    if not hazir:
+        return {"bulundu": False, "cevap": "", "kaynaklar": []}
+    adlar = {k["saklanan"]: k["ad"] for k in hazir}
+
+    try:
+        sonuc = ask(soru, kovan.store(kullanici), sources=list(adlar))
+    except Exception as e:  # Groq ya da model hatası; ayrıntı istemciye gitmez
+        log.warning("cevap üretilemedi: %s", type(e).__name__)
+        raise Hata(502, "cevap")
+
+    cevap = (sonuc.get("answer") or "").strip()
+    parcalar = [p for p in sonuc.get("chunks", []) if p["source"] in adlar]
+    if not parcalar or cevap.startswith(BULUNAMADI):
+        return {"bulundu": False, "cevap": "", "kaynaklar": []}
+
+    kaynaklar, gorulen = [], set()
+    for p in parcalar:
+        anahtar = (p["source"], p["chunk_index"])
+        if anahtar in gorulen:
+            continue
+        gorulen.add(anahtar)
+        metin = p["text"]
+        kaynaklar.append({
+            "etiket": f"{adlar[p['source']]} · parça {p['chunk_index'] + 1}",
+            "alinti": metin[:ALINTI] + ("…" if len(metin) > ALINTI else ""),
+        })
+    return {"bulundu": True, "cevap": cevap, "kaynaklar": kaynaklar}
