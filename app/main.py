@@ -15,9 +15,8 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from app import kovan
+from app import kovan, yukleme
 from app.config import ARI_GIZLI, MAKS_DOSYA_BAYT, MAKS_SORU
-from app.document_processor import is_supported
 from app.guvenlik import Hata, imzali_kullanici
 from app.rag import BULUNAMADI, ask
 
@@ -95,12 +94,11 @@ async def upload_file(
     kullanici: str = Depends(imzali_kullanici),
 ):
     kovan.ders_gecerli(ders)
-    ad = os.path.basename(unquote(request.headers.get("x-dosya-adi", "")))
-    if not ad or not is_supported(ad):
-        raise Hata(400, "tur")
+    ad = yukleme.temiz_ad(unquote(request.headers.get("x-dosya-adi", "")))
     uzunluk = request.headers.get("content-length", "")
     if uzunluk.isdigit() and int(uzunluk) > MAKS_DOSYA_BAYT:
         raise Hata(413, "boyut")
+    yukleme.kota_denetle(*kovan.kullanim(kullanici), int(uzunluk) if uzunluk.isdigit() else 0)
 
     dizin = kovan.dosya_dizini(kullanici)
     os.makedirs(dizin, exist_ok=True)
@@ -118,13 +116,16 @@ async def upload_file(
                 f.write(parca)
         if toplam == 0:
             raise Hata(400, "bos")
-        os.replace(gecici, os.path.join(dizin, saklanan))
+        sayfa = yukleme.icerik_denetle(gecici, uzanti)
+        with kovan.kilit(kullanici):
+            yukleme.kota_denetle(*kovan.kullanim(kullanici), toplam)  # aynı anda iki yükleme
+            os.replace(gecici, os.path.join(dizin, saklanan))
+            kayit = kovan.yeni_kayit(dosya_id, ad, ders, saklanan, toplam, sayfa)
+            kovan.ekle(kullanici, kayit)
     finally:
         if os.path.exists(gecici):
             os.remove(gecici)
 
-    kayit = kovan.yeni_kayit(dosya_id, ad, ders, saklanan, toplam, None)
-    kovan.ekle(kullanici, kayit)
     kovan.kuyruga_al(dosya_id)
     background.add_task(kovan.isle, kullanici, dosya_id)
     return {"dosya": kovan.gorunum(kayit)}
