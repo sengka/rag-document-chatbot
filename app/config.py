@@ -4,7 +4,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Groq API
-GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
+GROQ_API_KEY = os.getenv("GROQ_API_KEY", "").strip()
 GROQ_MODEL = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
 
 # Embedding modeli (yerel, ücretsiz, API gerektirmez)

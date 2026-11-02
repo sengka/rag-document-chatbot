@@ -16,6 +16,7 @@ from pydantic import BaseModel
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app import kovan, yukleme
+from app import config
 from app.config import ARI_GIZLI, MAKS_DOSYA_BAYT, MAKS_SORU
 from app.guvenlik import Hata, imzali_kullanici
 from app.rag import BULUNAMADI, ask
@@ -31,6 +32,10 @@ if not log.handlers:
     _h.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
     log.addHandler(_h)
     log.setLevel(logging.INFO)
+
+# Anahtar boşsa Groq istemcisi "Bearer " başlığıyla istek atar ve yanıltıcı APIConnectionError verir
+if not config.GROQ_API_KEY:
+    log.error("GROQ_API_KEY ayarlı değil: yükleme çalışır, Arı soru cevaplayamaz (.env'e ekleyin).")
 
 app = FastAPI(title="Mindshire Arı", docs_url=None, redoc_url=None, openapi_url=None)
 
@@ -154,6 +159,9 @@ def chat(istek: SoruIstegi, kullanici: str = Depends(imzali_kullanici)):
     if not hazir:
         return {"bulundu": False, "cevap": "", "kaynaklar": []}
     adlar = {k["saklanan"]: k["ad"] for k in hazir}
+    if not config.GROQ_API_KEY:
+        log.error("cevap üretilemedi: GROQ_API_KEY ayarlı değil")
+        raise Hata(502, "cevap")
 
     try:
         sonuc = ask(soru, kovan.store(kullanici), sources=list(adlar))

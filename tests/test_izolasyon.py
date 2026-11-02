@@ -134,3 +134,16 @@ def test_ders_ve_kullanici_silme(client, groq):
     assert client.delete("/kullanici", headers=basliklar(k, "DELETE", "/kullanici")).status_code == 200
     assert not os.path.exists(os.path.join(VERI_DIZINI, k))
     assert listele(client, k).json()["dosyalar"] == []
+
+
+def test_groq_anahtari_bossa_groqa_gitmez_gunlukte_acik_sebep(client, groq, caplog, monkeypatch):
+    from app import config
+
+    k = "9" * 24
+    yukle(client, k, DERS_A, "n.txt", "Asit baz tepkimesi.".encode())
+    monkeypatch.setattr(config, "GROQ_API_KEY", "")
+    with caplog.at_level("ERROR", logger="ari"):
+        r = sor(client, k, DERS_A, "asit baz")
+    assert r.status_code == 502 and r.json() == {"kod": "cevap"}
+    assert groq.cagrilar == []
+    assert "GROQ_API_KEY ayarlı değil" in caplog.text
