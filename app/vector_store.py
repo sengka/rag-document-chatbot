@@ -10,6 +10,13 @@ from app.document_processor import Chunk
 EMBEDDING_DIM = 384  # paraphrase-multilingual-MiniLM-L12-v2 çıktı boyutu
 
 
+def _atomik_yaz(yol: str, veri: bytes) -> None:
+    gecici = yol + ".tmp"
+    with open(gecici, "wb") as f:
+        f.write(veri)
+    os.replace(gecici, yol)
+
+
 class VectorStore:
     """Tek bir kullanıcının FAISS indeksi; dosyaları kendi dizininde durur."""
 
@@ -22,9 +29,12 @@ class VectorStore:
         self.chunks: List[Chunk] = []  # FAISS'teki sıraya paralel chunk listesi
         self._load_or_create()
 
+    # faiss.read_index/write_index yolu C fopen'a dar karakterle verir; Windows'ta yolda Türkçe
+    # karakter varsa (ör. "Masaüstü") RuntimeError ile düşer. Dosya işini Python yapar.
     def _load_or_create(self):
         if os.path.exists(self.index_path) and os.path.exists(self.metadata_path):
-            self.index = faiss.read_index(self.index_path)
+            with open(self.index_path, "rb") as f:
+                self.index = faiss.deserialize_index(np.frombuffer(f.read(), dtype="uint8"))
             with open(self.metadata_path, "rb") as f:
                 self.chunks = pickle.load(f)
         else:
@@ -44,9 +54,8 @@ class VectorStore:
         """Index ve metadata'yı diske kaydeder."""
         with self.lock:
             os.makedirs(self.index_dir, exist_ok=True)
-            faiss.write_index(self.index, self.index_path)
-            with open(self.metadata_path, "wb") as f:
-                pickle.dump(self.chunks, f)
+            _atomik_yaz(self.index_path, faiss.serialize_index(self.index).tobytes())
+            _atomik_yaz(self.metadata_path, pickle.dumps(self.chunks))
 
     def remove_source(self, source: str) -> int:
         """Bir dosyanın bütün parçalarını indeksten çıkarır; çıkarılan parça sayısını döndürür."""

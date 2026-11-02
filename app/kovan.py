@@ -170,7 +170,9 @@ def isle(kullanici: str, dosya_id: str) -> None:
                     return
                 parcalar = chunk_text(metin, source=kayit["saklanan"])
                 if not parcalar:
-                    guncelle(kullanici, dosya_id, durum="hata", hata="bos", adim=None)
+                    # okunabildi ama metin yok (boş belge, yalnız resim ya da metin kutusu)
+                    log.warning("metin bulunamadı: dosya=%s tür=%s", dosya_id, os.path.splitext(yol)[1])
+                    guncelle(kullanici, dosya_id, durum="hata", hata="metin", adim=None)
                     return
                 if not guncelle(kullanici, dosya_id, adim=2):
                     return
@@ -181,8 +183,9 @@ def isle(kullanici: str, dosya_id: str) -> None:
                         return
                     store(kullanici).add_chunks(parcalar, vektorler)
                     guncelle(kullanici, dosya_id, durum="hazir", parca=len(parcalar), adim=None)
-            except Exception as e:  # içerik ya da ayrıntı loglanmaz
-                log.warning("işleme hatası: %s", type(e).__name__)
+            except Exception:
+                # Günlüğe mesaj ve traceback yazılır; istemciye yalnız sabit "isleme" kodu gider.
+                log.exception("işleme hatası: dosya=%s tür=%s", dosya_id, os.path.splitext(yol)[1])
                 guncelle(kullanici, dosya_id, durum="hata", hata="isleme", adim=None)
     finally:
         _islenen.discard(dosya_id)

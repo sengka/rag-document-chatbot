@@ -24,6 +24,13 @@ if len(ARI_GIZLI) < 32:
     raise RuntimeError("ARI_GIZLI ayarlı değil (en az 32 karakter); Arı servisi başlatılmadı.")
 
 log = logging.getLogger("ari")
+if not log.handlers:
+    # "ari.*" günlükleri (ör. işleme hatasının traceback'i) stderr'e; Windows'ta UTF-8 için
+    # PYTHONUTF8=1 (scripts/ikiServis.js çocuk sürece verir).
+    _h = logging.StreamHandler()
+    _h.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
+    log.addHandler(_h)
+    log.setLevel(logging.INFO)
 
 app = FastAPI(title="Mindshire Arı", docs_url=None, redoc_url=None, openapi_url=None)
 
