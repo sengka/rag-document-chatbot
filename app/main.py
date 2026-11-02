@@ -158,7 +158,8 @@ def chat(istek: SoruIstegi, kullanici: str = Depends(imzali_kullanici)):
     try:
         sonuc = ask(soru, kovan.store(kullanici), sources=list(adlar))
     except Exception as e:  # Groq ya da model hatası; ayrıntı istemciye gitmez
-        log.warning("cevap üretilemedi: %s", type(e).__name__)
+        # Günlüğe mesaj ve traceback (ör. APIConnectionError'ın altındaki SSL/DNS/vekil sebebi) yazılır.
+        log.exception("cevap üretilemedi: %s", type(e).__name__)
         raise Hata(502, "cevap")
 
     cevap = (sonuc.get("answer") or "").strip()

@@ -93,12 +93,21 @@ def test_bulunamadi_ve_bos_ders_groqa_gitmez(client, groq):
     assert r["bulundu"] is False and r["kaynaklar"] == []
 
 
-def test_groq_hatasi_502_ayrintisiz(client, groq):
+def test_groq_hatasi_502_ayrintisiz_gunlukte_sebep(client, groq, caplog):
     k = "e" * 24
     yukle(client, k, DERS_A, "n.txt", "Asit baz tepkimesi.".encode())
-    groq.hata = RuntimeError("gizli ayrıntı api key")
-    r = sor(client, k, DERS_A, "asit baz")
+    try:
+        raise OSError("[SSL: CERTIFICATE_VERIFY_FAILED] gizli ayrıntı")
+    except OSError as alt:
+        hata = RuntimeError("Connection error.")
+        hata.__cause__ = alt
+    groq.hata = hata
+    with caplog.at_level("ERROR", logger="ari"):
+        r = sor(client, k, DERS_A, "asit baz")
     assert r.status_code == 502 and r.json() == {"kod": "cevap"}
+    assert "gizli" not in r.text
+    # günlükte alttaki sebep de görünür
+    assert "cevap üretilemedi" in caplog.text and "CERTIFICATE_VERIFY_FAILED" in caplog.text
 
 
 def test_dosya_silinince_parcalari_sohbete_girmez(client, groq):
