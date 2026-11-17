@@ -1,5 +1,7 @@
 # Kendi Dokümanların ile Sohbet Et
 
+> **Bu dal Mindshire+ "Arı" yan servisidir.** Servis yalnız `127.0.0.1`'de, Mindshire Express sunucusunun arkasında çalışır; eski bağımsız arayüz (`/`, `/static`, `/docs`) kapalıdır. Ayrıntılar aşağıda "Mindshire yan servisi" bölümünde.
+
 TXT, PDF ve DOCX dosyaları yükleyip, bu dokümanlar üzerinden yapay zeka ile soru-cevap yapabileceğin bir RAG (Retrieval-Augmented Generation) uygulaması.
 
 ## Özellikler
@@ -120,3 +122,16 @@ app/
 
 - `.doc` formatı doğrudan desteklenmez, `.docx`'e çevirmeniz gerekir (python-docx kısıtı).
 - Aynı dosya adıyla tekrar yükleme yapılırsa, index'e ek olarak eklenir (üzerine yazmaz).
+
+## Mindshire yan servisi
+
+- Başlatma (Mindshire deposunda tek komut: `npm run dev:ari`) ya da elle:
+  `ARI_GIZLI=... python -m uvicorn app.main:app --host 127.0.0.1 --port 8001`
+- `ARI_GIZLI` (en az 32 karakter, Mindshire `.env`'iyle aynı) yoksa servis başlamaz.
+- Ortam: `GROQ_API_KEY`, isteğe bağlı `GROQ_MODEL`, `TESSERACT_CMD` (Linux/macOS: ör. `/usr/bin/tesseract`), `ARI_VERI_DIZINI` (varsayılan `kovan_verisi/`).
+- Her istek Express'in imzaladığı başlıkları taşır: `X-Ms-Kullanici` (userId), `X-Ms-Zaman`, `X-Ms-Imza = hex(HMAC-SHA256(ARI_GIZLI, "zaman\nMETOD\nyol?sorgu\nuserId"))`, 60 sn pencere.
+- Her kullanıcının dosyaları, manifest'i ve FAISS indeksi ayrı: `ARI_VERI_DIZINI/<userId>/`. Dosyalar diskte `<uuid>.<uzantı>` adıyla saklanır.
+- Sınırlar: TXT/PDF/DOCX (içerik imzası denetlenir), dosya başına 20 MB, PDF en fazla 150 sayfa, kullanıcı başına 30 dosya / 100 MB.
+- Uçlar: `GET /saglik`, `GET /files[?ders=]`, `GET /files/{id}`, `DELETE /files/{id}`, `POST /upload?ders=` (ham gövde, `X-Dosya-Adi`), `POST /chat {soru, ders}`, `DELETE /dersler/{ders}`, `DELETE /kullanici`. Hatalar yalnız `{"kod": ...}` döner.
+- Soru ve bulunan not parçaları cevap üretmek için Groq'a gönderilir; sistem mesajı belge içeriğinin talimat olmadığını söyler.
+- Testler: `pip install -r requirements-dev.txt && pytest` (embedding modeli ve Groq sahte).

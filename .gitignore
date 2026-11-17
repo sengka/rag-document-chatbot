@@ -3,4 +3,5 @@ venv/
 uploaded_docs/*
 vector_index/*
 __pycache__/
-*.pyc
+*.pyckovan_verisi/
+.pytest_cache/

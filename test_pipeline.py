@@ -13,7 +13,7 @@ embeddings = embed_texts(texts)
 print(f"Embedding shape: {embeddings.shape}\n")
 
 # 3. Vektör store'a ekle
-store = get_vector_store()
+store = get_vector_store("vector_index")  # tek kullanıcılı deneme dizini
 store.add_chunks(chunks, embeddings)
 print(f"Index'te toplam {store.index.ntotal} vektör var.\n")
 
