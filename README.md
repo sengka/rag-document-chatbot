@@ -132,6 +132,6 @@ app/
 - Her istek Express'in imzaladığı başlıkları taşır: `X-Ms-Kullanici` (userId), `X-Ms-Zaman`, `X-Ms-Imza = hex(HMAC-SHA256(ARI_GIZLI, "zaman\nMETOD\nyol?sorgu\nuserId"))`, 60 sn pencere.
 - Her kullanıcının dosyaları, manifest'i ve FAISS indeksi ayrı: `ARI_VERI_DIZINI/<userId>/`. Dosyalar diskte `<uuid>.<uzantı>` adıyla saklanır.
 - Sınırlar: TXT/PDF/DOCX (içerik imzası denetlenir), dosya başına 20 MB, PDF en fazla 150 sayfa, kullanıcı başına 30 dosya / 100 MB.
-- Uçlar: `GET /saglik`, `GET /files[?ders=]`, `GET /files/{id}`, `DELETE /files/{id}`, `POST /upload?ders=` (ham gövde, `X-Dosya-Adi`), `POST /chat {soru, ders}`, `DELETE /dersler/{ders}`, `DELETE /kullanici`. Hatalar yalnız `{"kod": ...}` döner.
+- Uçlar: `GET /saglik`, `GET /files[?ders=]`, `GET /files/{id}`, `DELETE /files/{id}`, `POST /upload?ders=` (ham gövde, `X-Dosya-Adi`), `POST /chat {soru, ders}`, `POST /quiz {ders}` (Dede'nin Quiz ve Fırtına Gecesi: o dersin hazır notlarından 5 çoktan seçmeli soru; not yoksa `{"yok": true}`, geçerli soru 5'ten azsa 502 `cevap`), `DELETE /dersler/{ders}`, `DELETE /kullanici`. Hatalar yalnız `{"kod": ...}` döner.
 - Soru ve bulunan not parçaları cevap üretmek için Groq'a gönderilir; sistem mesajı belge içeriğinin talimat olmadığını söyler.
 - Testler: `pip install -r requirements-dev.txt && pytest` (embedding modeli ve Groq sahte).

@@ -15,7 +15,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from app import kovan, yukleme
+from app import kovan, quiz, yukleme
 from app import config
 from app.config import ARI_GIZLI, MAKS_DOSYA_BAYT, MAKS_SORU
 from app.guvenlik import Hata, imzali_kullanici
@@ -187,3 +187,28 @@ def chat(istek: SoruIstegi, kullanici: str = Depends(imzali_kullanici)):
             "alinti": metin[:ALINTI] + ("…" if len(metin) > ALINTI else ""),
         })
     return {"bulundu": True, "cevap": cevap, "kaynaklar": kaynaklar}
+
+
+class QuizIstegi(BaseModel):
+    ders: str
+
+
+@app.post("/quiz")
+def quiz_uret(istek: QuizIstegi, kullanici: str = Depends(imzali_kullanici)):
+    """Dede'nin Quiz/Fırtına soruları: yalnız bu kullanıcının bu dersteki hazır notlarından."""
+    kovan.ders_gecerli(istek.ders)
+    hazir = [k for k in kovan.listele(kullanici, istek.ders) if k["durum"] == "hazir"]
+    if not hazir:
+        return {"yok": True}
+    adlar = {k["saklanan"]: k["ad"] for k in hazir}
+    if not config.GROQ_API_KEY:
+        log.error("quiz üretilemedi: GROQ_API_KEY ayarlı değil")
+        raise Hata(502, "cevap")
+    try:
+        sorular = quiz.uret(kovan.store(kullanici), adlar)
+    except Exception as e:  # Groq ya da doğrulama hatası; ayrıntı istemciye gitmez
+        log.error("quiz üretilemedi: %s", type(e).__name__)
+        raise Hata(502, "cevap")
+    if not sorular:
+        return {"yok": True}
+    return {"sorular": sorular}
